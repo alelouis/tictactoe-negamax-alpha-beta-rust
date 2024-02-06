@@ -6,6 +6,7 @@ struct Game {
     turn: u8,
     size: u8,
     wins: Vec<u32>,
+    total_evaluations: u32,
 }
 
 impl Game {
@@ -15,6 +16,7 @@ impl Game {
             turn: 0,
             size: 3,
             wins: vec![],
+            total_evaluations: 0,
         };
         g.init_win_mask();
         g
@@ -111,8 +113,8 @@ impl Game {
     }
 
     // Return best move according to minimax
-    fn best_move(&mut self, depth: u8) -> u32 {
-        self.minimax(depth).0
+    fn best_move(&mut self, alpha: f32, beta: f32, depth: u8) -> u32 {
+        self.negamax(alpha, beta, depth).0
     }
 
     // Play randomly
@@ -124,14 +126,10 @@ impl Game {
             .clone()
     }
 
-    // Evaluate positions according to the minimax algorithm
-    fn minimax(&mut self, depth: u8) -> (u32, f32) {
+    // Evaluate positions according to the negamax algorithm
+    fn negamax(&mut self, mut alpha: f32, beta: f32, depth: u8) -> (u32, f32) {
         if self.is_won() {
-            return if self.turn == 0 {
-                (0u32, -f32::INFINITY)
-            } else {
-                (0u32, f32::INFINITY)
-            };
+            return (0u32, -f32::INFINITY);
         } else if self.is_full() {
             return (0u32, 0.0f32);
         } else if depth == 0 {
@@ -139,68 +137,51 @@ impl Game {
         }
         let mut best_moves = vec![];
 
-        if self.turn == 0 {
-            let mut value = -f32::INFINITY;
-            let mut best_value = -f32::INFINITY;
-            for square in self.moves() {
-                self.make_move(square);
-                let score = self.minimax(depth - 1).1;
-                value = value.max(score);
-                self.undo_move(square);
-                if score == best_value {
-                    best_moves.push(square);
-                } else if score > best_value {
-                    best_value = score;
-                    best_moves = vec![square];
+        let mut value = -f32::INFINITY;
+        let mut best_value = -f32::INFINITY;
+        for square in self.moves() {
+            self.total_evaluations += 1;
+            self.make_move(square);
+            let score = -self.negamax(-beta, -alpha, depth - 1).1;
+            value = value.max(score);
+            self.undo_move(square);
+            if score == best_value {
+                best_moves.push(square);
+            } else if score > best_value {
+                best_value = score;
+                best_moves = vec![square];
+                if score > beta {
+                    break;
                 }
             }
-            let mut rng = thread_rng();
-            (
-                best_moves
-                    .choose(&mut rng)
-                    .expect("Can't chose from 0 moves")
-                    .clone(),
-                value,
-            )
-        } else {
-            let mut value = f32::INFINITY;
-            let mut best_value = f32::INFINITY;
-            for square in self.moves() {
-                self.make_move(square);
-                let score = self.minimax(depth - 1).1;
-                value = value.min(score);
-                self.undo_move(square);
-                if score == best_value {
-                    best_moves.push(square);
-                } else if score < best_value {
-                    best_value = score;
-                    best_moves = vec![square];
-                }
-            }
-            let mut rng = thread_rng();
-            (
-                best_moves
-                    .choose(&mut rng)
-                    .expect("Can't chose from 0 moves")
-                    .clone(),
-                value,
-            )
+            alpha = alpha.max(score);
         }
+        let mut rng = thread_rng();
+        (
+            best_moves
+                .choose(&mut rng)
+                .expect("Can't chose from 0 moves")
+                .clone(),
+            value,
+        )
     }
 }
 
 fn main() {
     let mut results = [0, 0, 0];
-    for _ in 0..100 {
+    let mut eval_total = 0;
+    let n_games = 100;
+    for _ in 0..n_games {
         let mut game = Game::new();
         while !game.is_over() {
             let next_move = if game.turn == 0 {
-                game.best_move(6)
+                game.best_move(-f32::INFINITY, f32::INFINITY, 6)
             } else {
-                game.best_move(6)
+                game.best_move(-f32::INFINITY, f32::INFINITY, 6)
             };
             game.make_move(next_move);
         }
+        eval_total += game.total_evaluations;
         if game.is_won() {
             if game.turn == 0 {
                 results[1] += 1;
@@ -212,4 +193,5 @@ fn main() {
         }
     }
     println!("{:?}", results);
+    println!("Total evaluations per game: {:?}", eval_total / n_games);
 }
